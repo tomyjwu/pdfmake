@@ -100,7 +100,7 @@ return /******/ (function(modules) { // webpackBootstrap
 		}
 
 		var printer = new PdfPrinter(this.fonts);
-		printer.fs.bindFS(this.vfs);
+		__webpack_require__(54).bindFS(this.vfs); // bind virtual file system to file system
 
 		var doc = printer.createPdfKitDocument(this.docDefinition, options);
 		var chunks = [];
@@ -242,6 +242,87 @@ return /******/ (function(modules) { // webpackBootstrap
 		}
 		this._createDoc(options, function (buffer) {
 			cb(buffer);
+		});
+	};
+
+	/**
+	 * create pdfDoc in two steps, allowing other pdfkit features to insert other object, such as svg-to-Pdfkit
+	 * also store the pdfkitDoc as property
+	 * @param {*} options 
+	 * @param {*} callback 
+	 */
+	Document.prototype.createPdfkitDoc = function (options) {
+		options = options || {};
+		if (this.tableLayouts) {
+			options.tableLayouts = this.tableLayouts;
+		}
+
+		var printer = new PdfPrinter(this.fonts);
+		__webpack_require__(54).bindFS(this.vfs); // bind virtual file system to file system
+
+		this.pdfkitDoc = printer.createPdfKitDocument(this.docDefinition, options);
+		return this.pdfkitDoc;
+	};
+
+	Document.prototype.endPdfkitDoc = function (doc, callback) {
+		var chunks = [];
+		var result;
+
+		doc.on('readable', function () {
+			var chunk;
+			while ((chunk = doc.read(9007199254740991)) !== null) {
+				chunks.push(chunk);
+			}
+		});
+		doc.on('end', function () {
+			result = Buffer.concat(chunks);
+			callback(result, doc._pdfMakePages);
+		});
+		doc.end();
+	};
+
+	Document.prototype.endPdfAndGetBlob = function (doc, cb) {
+		var that = this;
+		this.endPdfkitDoc(function(result) {
+			var blob = that._bufferToBlob(result);
+			if (isFunction(cb)) {
+				cb(blob);
+			}
+		});
+	};
+
+	Document.prototype.endPdfAndDownload = function (doc, defaultFileName, cb) {
+		if (isFunction(defaultFileName)) {
+			cb = defaultFileName;
+			defaultFileName = null;
+		}
+
+		defaultFileName = defaultFileName || 'file.pdf';
+
+		this.endPdfAndGetBlob(function(result) {
+			saveAs(result, defaultFileName);
+
+			if (isFunction(cb)) {
+				cb();
+			}
+		});
+	};
+
+	Document.prototype.endPdfAndGetBase64 = function (doc, cb) {
+		this.endPdfkitDoc(function(result) {
+			var base64 = result.toString('base64');
+			if (isFunction(cb)) {
+				cb(base64);
+			}
+		});
+	};
+
+	Document.prototype.endPdfAndGetDataUrl = function (doc, cb) {
+		this.endPdfkitDoc(function(result) {
+			var dataUrl = 'data:application/pdf;base64,' + result.toString('base64');
+			if (isFunction(cb)) {
+				cb(dataUrl);
+			}
 		});
 	};
 
@@ -2810,10 +2891,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	module.exports = PdfPrinter;
 
 
-	/* temporary browser extension */
-	PdfPrinter.prototype.fs = __webpack_require__(54);
-
-
 /***/ }),
 /* 7 */
 /***/ (function(module, exports, __webpack_require__) {
@@ -2905,6 +2982,14 @@ return /******/ (function(modules) { // webpackBootstrap
 		return variable !== null && typeof variable === 'object';
 	}
 
+	function isNull(variable) {
+		return variable === null;
+	}
+
+	function isUndefined(variable) {
+		return variable === undefined;
+	}
+
 	function pack() {
 		var result = {};
 
@@ -2959,6 +3044,8 @@ return /******/ (function(modules) { // webpackBootstrap
 		isArray: isArray,
 		isFunction: isFunction,
 		isObject: isObject,
+		isNull: isNull,
+		isUndefined: isUndefined,
 		pack: pack,
 		fontStringify: fontStringify,
 		offsetVector: offsetVector
@@ -3695,50 +3782,48 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	'use strict';
 
-	/**
-	 * Creates an instance of TraversalTracker
-	 *
-	 * @constructor
-	 */
 	function TraversalTracker() {
 		this.events = {};
 	}
 
-	TraversalTracker.prototype.startTracking = function (event, cb) {
-		var callbacks = (this.events[event] || (this.events[event] = []));
+	TraversalTracker.prototype.startTracking = function (event, callback) {
+		var callbacks = this.events[event] || (this.events[event] = []);
 
-		if (callbacks.indexOf(cb) < 0) {
-			callbacks.push(cb);
+		if (callbacks.indexOf(callback) < 0) {
+			callbacks.push(callback);
 		}
 	};
 
-	TraversalTracker.prototype.stopTracking = function (event, cb) {
+	TraversalTracker.prototype.stopTracking = function (event, callback) {
 		var callbacks = this.events[event];
 
-		if (callbacks) {
-			var index = callbacks.indexOf(cb);
-			if (index >= 0) {
-				callbacks.splice(index, 1);
-			}
+		if (!callbacks) {
+			return;
+		}
+
+		var index = callbacks.indexOf(callback);
+		if (index >= 0) {
+			callbacks.splice(index, 1);
 		}
 	};
 
 	TraversalTracker.prototype.emit = function (event) {
 		var args = Array.prototype.slice.call(arguments, 1);
-
 		var callbacks = this.events[event];
 
-		if (callbacks) {
-			callbacks.forEach(function (cb) {
-				cb.apply(this, args);
-			});
+		if (!callbacks) {
+			return;
 		}
+
+		callbacks.forEach(function (callback) {
+			callback.apply(this, args);
+		});
 	};
 
-	TraversalTracker.prototype.auto = function (event, cb, innerBlock) {
-		this.startTracking(event, cb);
-		innerBlock();
-		this.stopTracking(event, cb);
+	TraversalTracker.prototype.auto = function (event, callback, innerFunction) {
+		this.startTracking(event, callback);
+		innerFunction();
+		this.stopTracking(event, callback);
 	};
 
 	module.exports = TraversalTracker;
@@ -3748,12 +3833,13 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 11 */
 /***/ (function(module, exports, __webpack_require__) {
 
-	'use strict';
+	/* WEBPACK VAR INJECTION */(function(Buffer) {'use strict';
 
 	var isString = __webpack_require__(8).isString;
 	var isNumber = __webpack_require__(8).isNumber;
 	var isBoolean = __webpack_require__(8).isBoolean;
 	var isArray = __webpack_require__(8).isArray;
+	var isUndefined = __webpack_require__(8).isUndefined;
 	var fontStringify = __webpack_require__(8).fontStringify;
 
 	function DocPreprocessor() {
@@ -3938,6 +4024,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	};
 
 	DocPreprocessor.prototype.preprocessImage = function (node) {
+		if (!isUndefined(node.image.type) && !isUndefined(node.image.data) && (node.image.type === 'Buffer') && isArray(node.image.data)) {
+			node.image = new Buffer(node.image.data);
+		}
 		return node;
 	};
 
@@ -3950,6 +4039,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	};
 
 	module.exports = DocPreprocessor;
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(2).Buffer))
 
 /***/ }),
 /* 12 */
@@ -5027,13 +5117,6 @@ return /******/ (function(modules) { // webpackBootstrap
 		return font.widthOfString(text, fontSize, fontFeatures) + ((characterSpacing || 0) * (text.length - 1));
 	}
 
-	/****TESTS**** (add a leading '/' to uncomment)
-	 TextTools.prototype.splitWords = splitWords;
-	 TextTools.prototype.normalizeTextArray = normalizeTextArray;
-	 TextTools.prototype.measure = measure;
-	 // */
-
-
 	module.exports = TextTools;
 
 
@@ -5934,6 +6017,8 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	var isString = __webpack_require__(8).isString;
 	var isArray = __webpack_require__(8).isArray;
+	var isUndefined = __webpack_require__(8).isUndefined;
+	var isNull = __webpack_require__(8).isNull;
 
 	/**
 	 * Creates an instance of StyleContextStack used for style inheritance and style overrides
@@ -6014,10 +6099,7 @@ return /******/ (function(modules) { // webpackBootstrap
 			this.push(styleNames[i]);
 		}
 
-		var styleOverrideObject = {};
-		var pushSOO = false;
-
-		[
+		var styleProperties = [
 			'font',
 			'fontSize',
 			'fontFeatures',
@@ -6042,18 +6124,22 @@ return /******/ (function(modules) { // webpackBootstrap
 				// 'oddRowCellBorder',
 				// 'evenRowCellBorder',
 				// 'tableBorder'
-		].forEach(function (key) {
-			if (item[key] !== undefined && item[key] !== null) {
+		];
+		var styleOverrideObject = {};
+		var pushStyleOverrideObject = false;
+
+		styleProperties.forEach(function (key) {
+			if (!isUndefined(item[key]) && !isNull(item[key])) {
 				styleOverrideObject[key] = item[key];
-				pushSOO = true;
+				pushStyleOverrideObject = true;
 			}
 		});
 
-		if (pushSOO) {
+		if (pushStyleOverrideObject) {
 			this.push(styleOverrideObject);
 		}
 
-		return styleNames.length + (pushSOO ? 1 : 0);
+		return styleNames.length + (pushStyleOverrideObject ? 1 : 0);
 	};
 
 	/**
@@ -6088,16 +6174,13 @@ return /******/ (function(modules) { // webpackBootstrap
 
 				if (isString(item)) {
 					// named-style-override
-
 					var style = this.styleDictionary[item];
-					if (style && style[property] !== null && style[property] !== undefined) {
+					if (style && !isUndefined(style[property]) && !isNull(style[property])) {
 						return style[property];
 					}
-				} else {
+				} else if (!isUndefined(item[property]) && !isNull(item[property])) {
 					// style-overrides-object
-					if (item[property] !== undefined && item[property] !== null) {
-						return item[property];
-					}
+					return item[property];
 				}
 			}
 		}
@@ -7350,10 +7433,6 @@ return /******/ (function(modules) { // webpackBootstrap
 			availableWidth: r.availableWidth
 		};
 	}
-
-	/****TESTS**** (add a leading '/' to uncomment)
-	 DocumentContext.bottomMostContext = bottomMostContext;
-	 // */
 
 	module.exports = DocumentContext;
 
@@ -49569,33 +49648,35 @@ return /******/ (function(modules) { // webpackBootstrap
 	var isArray = __webpack_require__(8).isArray;
 
 	function groupDecorations(line) {
-		var groups = [], curGroup = null;
+		var groups = [], currentGroup = null;
 		for (var i = 0, l = line.inlines.length; i < l; i++) {
 			var inline = line.inlines[i];
 			var decoration = inline.decoration;
 			if (!decoration) {
-				curGroup = null;
+				currentGroup = null;
 				continue;
+			}
+			if (!isArray(decoration)) {
+				decoration = [decoration];
 			}
 			var color = inline.decorationColor || inline.color || 'black';
 			var style = inline.decorationStyle || 'solid';
-			decoration = isArray(decoration) ? decoration : [decoration];
 			for (var ii = 0, ll = decoration.length; ii < ll; ii++) {
-				var deco = decoration[ii];
-				if (!curGroup || deco !== curGroup.decoration ||
-					style !== curGroup.decorationStyle || color !== curGroup.decorationColor ||
-					deco === 'lineThrough') {
+				var decorationItem = decoration[ii];
+				if (!currentGroup || decorationItem !== currentGroup.decoration ||
+					style !== currentGroup.decorationStyle || color !== currentGroup.decorationColor ||
+					decorationItem === 'lineThrough') {
 
-					curGroup = {
+					currentGroup = {
 						line: line,
-						decoration: deco,
+						decoration: decorationItem,
 						decorationColor: color,
 						decorationStyle: style,
 						inlines: [inline]
 					};
-					groups.push(curGroup);
+					groups.push(currentGroup);
 				} else {
-					curGroup.inlines.push(inline);
+					currentGroup.inlines.push(inline);
 				}
 			}
 		}
@@ -49607,8 +49688,8 @@ return /******/ (function(modules) { // webpackBootstrap
 		function maxInline() {
 			var max = 0;
 			for (var i = 0, l = group.inlines.length; i < l; i++) {
-				var inl = group.inlines[i];
-				max = inl.fontSize > max ? i : max;
+				var inline = group.inlines[i];
+				max = inline.fontSize > max ? i : max;
 			}
 			return group.inlines[max];
 		}
@@ -49680,7 +49761,6 @@ return /******/ (function(modules) { // webpackBootstrap
 				rwx += sh * 6;
 			}
 			pdfKitDoc.stroke(group.decorationColor);
-
 		} else {
 			pdfKitDoc.fillColor(group.decorationColor)
 				.rect(x + firstInline.x, y - lw / 2, totalWidth, lw)
@@ -49700,12 +49780,13 @@ return /******/ (function(modules) { // webpackBootstrap
 		var height = line.getHeight();
 		for (var i = 0, l = line.inlines.length; i < l; i++) {
 			var inline = line.inlines[i];
-			if (inline.background) {
-				var justifyShift = (inline.justifyShift || 0);
-				pdfKitDoc.fillColor(inline.background)
-					.rect(x + inline.x - justifyShift, y, inline.width + justifyShift, height)
-					.fill();
+			if (!inline.background) {
+				continue;
 			}
+			var justifyShift = (inline.justifyShift || 0);
+			pdfKitDoc.fillColor(inline.background)
+				.rect(x + inline.x - justifyShift, y, inline.width + justifyShift, height)
+				.fill();
 		}
 	}
 

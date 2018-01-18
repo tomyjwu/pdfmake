@@ -181,6 +181,87 @@ Document.prototype.getBuffer = function (cb, options) {
 	});
 };
 
+/**
+ * create pdfDoc in two steps, allowing other pdfkit features to insert other object, such as svg-to-Pdfkit
+ * also store the pdfkitDoc as property
+ * @param {*} options 
+ * @param {*} callback 
+ */
+Document.prototype.createPdfkitDoc = function (options) {
+	options = options || {};
+	if (this.tableLayouts) {
+		options.tableLayouts = this.tableLayouts;
+	}
+
+	var printer = new PdfPrinter(this.fonts);
+	require('fs').bindFS(this.vfs); // bind virtual file system to file system
+
+	this.pdfkitDoc = printer.createPdfKitDocument(this.docDefinition, options);
+	return this.pdfkitDoc;
+};
+
+Document.prototype.endPdfkitDoc = function (doc, callback) {
+	var chunks = [];
+	var result;
+
+	doc.on('readable', function () {
+		var chunk;
+		while ((chunk = doc.read(9007199254740991)) !== null) {
+			chunks.push(chunk);
+		}
+	});
+	doc.on('end', function () {
+		result = Buffer.concat(chunks);
+		callback(result, doc._pdfMakePages);
+	});
+	doc.end();
+};
+
+Document.prototype.endPdfAndGetBlob = function (doc, cb) {
+	var that = this;
+	this.endPdfkitDoc(function(result) {
+		var blob = that._bufferToBlob(result);
+		if (isFunction(cb)) {
+			cb(blob);
+		}
+	});
+};
+
+Document.prototype.endPdfAndDownload = function (doc, defaultFileName, cb) {
+	if (isFunction(defaultFileName)) {
+		cb = defaultFileName;
+		defaultFileName = null;
+	}
+
+	defaultFileName = defaultFileName || 'file.pdf';
+
+	this.endPdfAndGetBlob(function(result) {
+		saveAs(result, defaultFileName);
+
+		if (isFunction(cb)) {
+			cb();
+		}
+	});
+};
+
+Document.prototype.endPdfAndGetBase64 = function (doc, cb) {
+	this.endPdfkitDoc(function(result) {
+		var base64 = result.toString('base64');
+		if (isFunction(cb)) {
+			cb(base64);
+		}
+	});
+};
+
+Document.prototype.endPdfAndGetDataUrl = function (doc, cb) {
+	this.endPdfkitDoc(function(result) {
+		var dataUrl = 'data:application/pdf;base64,' + result.toString('base64');
+		if (isFunction(cb)) {
+			cb(dataUrl);
+		}
+	});
+};
+
 module.exports = {
 	createPdf: function (docDefinition) {
 		if (!canCreatePdf()) {
