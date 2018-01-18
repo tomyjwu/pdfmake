@@ -235,7 +235,7 @@ Document.prototype.endPdfAndDownload = function (doc, defaultFileName, cb) {
 
 	defaultFileName = defaultFileName || 'file.pdf';
 
-	this.endPdfAndGetBlob(function(result) {
+	this.endPdfAndGetBlob(doc, function(result) {
 		saveAs(result, defaultFileName);
 
 		if (isFunction(cb)) {
