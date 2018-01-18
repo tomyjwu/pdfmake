@@ -219,7 +219,7 @@ Document.prototype.endPdfkitDoc = function (doc, callback) {
 
 Document.prototype.endPdfAndGetBlob = function (doc, cb) {
 	var that = this;
-	this.endPdfkitDoc(function(result) {
+	this.endPdfkitDoc(doc, function(result) {
 		var blob = that._bufferToBlob(result);
 		if (isFunction(cb)) {
 			cb(blob);
@@ -245,7 +245,7 @@ Document.prototype.endPdfAndDownload = function (doc, defaultFileName, cb) {
 };
 
 Document.prototype.endPdfAndGetBase64 = function (doc, cb) {
-	this.endPdfkitDoc(function(result) {
+	this.endPdfkitDoc(doc, function(result) {
 		var base64 = result.toString('base64');
 		if (isFunction(cb)) {
 			cb(base64);
@@ -254,7 +254,7 @@ Document.prototype.endPdfAndGetBase64 = function (doc, cb) {
 };
 
 Document.prototype.endPdfAndGetDataUrl = function (doc, cb) {
-	this.endPdfkitDoc(function(result) {
+	this.endPdfkitDoc(doc, function(result) {
 		var dataUrl = 'data:application/pdf;base64,' + result.toString('base64');
 		if (isFunction(cb)) {
 			cb(dataUrl);
